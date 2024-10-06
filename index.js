@@ -19,20 +19,21 @@ mongoose.connect(process.env.DB, {
   useUnifiedTopology: true,
 });
 
-// URL schema and model
 const urlSchema = new mongoose.Schema({
   originalUrl: { type: String, required: true },
   shortUrl: { type: Number, required: true, unique: true },
 });
 const Url = mongoose.model('Url', urlSchema);
 
-// POST endpoint to create a shortened URL
 app.post('/api/shorturl', async (req, res) => {
   const { url } = req.body;
 
+  console.log('Received URL:', url); // Log the incoming URL
+
   // Validate URL format
-  const regex = /^(https?:\/\/)(www\.)?([a-z0-9\-]+\.[a-z]{2,6})(\/.*)?$/i;
+  const regex = /^(https?:\/\/)([a-zA-Z0-9\-]+\.[a-zA-Z]{2,})(\/.*)?$/i;
   if (!regex.test(url)) {
+    console.log('Invalid URL format');
     return res.status(400).json({ error: 'invalid url' });
   }
 
@@ -40,6 +41,7 @@ app.post('/api/shorturl', async (req, res) => {
   const hostname = new URL(url).hostname;
   dns.lookup(hostname, async (err) => {
     if (err) {
+      console.log('DNS lookup failed:', err.message);
       return res.status(400).json({ error: 'invalid url' });
     }
 
@@ -57,6 +59,7 @@ app.post('/api/shorturl', async (req, res) => {
       const savedUrl = await newUrl.save();
       res.json({ original_url: savedUrl.originalUrl, short_url: savedUrl.shortUrl });
     } catch (error) {
+      console.error('Error saving URL:', error); // Log error
       return res.status(500).send(error);
     }
   });
@@ -74,20 +77,20 @@ app.get('/api/shorturl/:shortUrl', async (req, res) => {
     }
     res.redirect(foundUrl.originalUrl);
   } catch (error) {
+    console.error('Error retrieving URL:', error); // Log error
     return res.status(500).send(error);
   }
 });
 
-// Other endpoints
-app.get('/', (req, res) => {
+app.get('/', function (req, res) {
   res.sendFile(process.cwd() + '/views/index.html');
 });
 
 // Your first API endpoint
-app.get('/api/hello', (req, res) => {
+app.get('/api/hello', function (req, res) {
   res.json({ greeting: 'hello API' });
 });
 
-app.listen(port, () => {
+app.listen(port, function () {
   console.log(`Listening on port ${port}`);
 });
