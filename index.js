@@ -1,11 +1,14 @@
+
 const mongoose = require('mongoose');
 require('dotenv').config();
 const bodyParser = require('body-parser');
 const dns = require('dns');
-
 const express = require('express');
 const cors = require('cors');
 const app = express();
+const urlparser = require('url');
+
+
 // Basic Configuration
 const port = process.env.PORT || 3000;
 
@@ -14,56 +17,54 @@ app.use('/public', express.static(`${process.cwd()}/public`));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
+// Connect to MongoDB
 mongoose.connect(process.env.DB, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
 
+// Define URL schema and model
 const urlSchema = new mongoose.Schema({
-  originalUrl: { type: String, required: true },
+  originalUrl: { type: String, required: true, unique: true },
   shortUrl: { type: Number, required: true, unique: true },
 });
 const Url = mongoose.model('Url', urlSchema);
 
-app.post('/api/shorturl', async (req, res) => {
-  const { url } = req.body;
+app.post('/api/shorturl', async function (req, res) {
+  console.log(req.body);
 
-  console.log('Received URL:', url); // Log the incoming URL
+  const url = req.body.url;
 
-  // Validate URL format
-  const regex = /^(https?:\/\/)([a-zA-Z0-9\-]+\.[a-zA-Z]{2,})(\/.*)?$/i;
-  if (!regex.test(url)) {
-    console.log('Invalid URL format');
-    return res.status(400).json({ error: 'invalid url' });
-  }
+  // Use dns.lookup to check if the hostname resolves
+  const dnslookup = dns.lookup(urlparser.parse(url).hostname, async (err, address) => {
+    if (!address) {
+      // If DNS lookup fails, return "Invalid URL"
+      res.json({ error: "invalid url" });
+    } else {
+      try {
+        // Count the number of documents in the database
+        const urlCount = await Url.countDocuments({});
 
-  // Extract the hostname and check if it exists
-  const hostname = new URL(url).hostname;
-  dns.lookup(hostname, async (err) => {
-    if (err) {
-      console.log('DNS lookup failed:', err.message);
-      return res.status(400).json({ error: 'invalid url' });
-    }
+        // Create a new URL document with original URL and short URL
+        const urlDoc = {
+          originalUrl: url,
+          shortUrl: urlCount + 1
+        };
 
-    try {
-      // Check if the URL already exists in the database
-      const foundUrl = await Url.findOne({ originalUrl: url });
+        // Insert the new URL document into the database
+        const result = await Url.create(urlDoc);
+        console.log(result);
 
-      if (foundUrl) {
-        return res.json({ original_url: foundUrl.originalUrl, short_url: foundUrl.shortUrl });
+        // Return the original URL and the short URL
+        res.json({ original_url: url, short_url: urlDoc.shortUrl });
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Server error" });
       }
-
-      // Create a new entry
-      const count = await Url.countDocuments({});
-      const newUrl = new Url({ originalUrl: url, shortUrl: count + 1 });
-      const savedUrl = await newUrl.save();
-      res.json({ original_url: savedUrl.originalUrl, short_url: savedUrl.shortUrl });
-    } catch (error) {
-      console.error('Error saving URL:', error); // Log error
-      return res.status(500).send(error);
     }
   });
 });
+
 
 // GET endpoint to redirect to the original URL
 app.get('/api/shorturl/:shortUrl', async (req, res) => {
@@ -71,17 +72,16 @@ app.get('/api/shorturl/:shortUrl', async (req, res) => {
 
   try {
     const foundUrl = await Url.findOne({ shortUrl: shortUrl });
-
     if (!foundUrl) {
       return res.status(404).json({ error: 'No short URL found for the given input' });
     }
     res.redirect(foundUrl.originalUrl);
   } catch (error) {
-    console.error('Error retrieving URL:', error); // Log error
     return res.status(500).send(error);
   }
 });
 
+// GET endpoint for the home page
 app.get('/', function (req, res) {
   res.sendFile(process.cwd() + '/views/index.html');
 });
@@ -91,6 +91,7 @@ app.get('/api/hello', function (req, res) {
   res.json({ greeting: 'hello API' });
 });
 
+// Start the server
 app.listen(port, function () {
   console.log(`Listening on port ${port}`);
 });
